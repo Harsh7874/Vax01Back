@@ -26,6 +26,10 @@ app.use("/api/hospital", hospitalRouter)
 app.use("/api/vaccine", vaccineRouter)
 app.use("/api/hospitalb/",quantityRouter)
 
+app.get('/healthcheck', (req, res) => {
+  res.send('OK The Server is Active');
+});
+
 
 
 app.get("/", (req, res) => {
