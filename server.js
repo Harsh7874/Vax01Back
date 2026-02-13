@@ -1,39 +1,227 @@
-import express from "express"
-import cors from 'cors'
-import 'dotenv/config'
-import connectDB from "./config/mongodb.js"
-import connectCloudinary from "./config/cloudinary.js"
-import userRouter from "./routes/userRoute.js"
-import adminRouter from "./routes/adminRoute.js"
-import hospitalRouter from "./routes/hospitalRoute.js"
-import vaccineRouter from "./routes/vaccineRoute.js"
-import quantityRouter from "./routes/quantityRouter.js"
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>QuickChat Demo</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: Inter, Arial, sans-serif;
+      background: #0f172a;
+      color: #e5e7eb;
+      display: flex;
+      height: 100vh;
+    }
 
-// app config
-const app = express()
-const port = process.env.PORT || 4000
-connectDB()
-connectCloudinary()
+    .sidebar {
+      width: 280px;
+      background: #020617;
+      padding: 20px;
+      box-sizing: border-box;
+      border-right: 1px solid #1e293b;
+    }
 
-// middlewares
-app.use(express.json())
-app.use(cors())
+    .sidebar h2 {
+      margin-top: 0;
+      font-size: 18px;
+      color: #38bdf8;
+    }
 
-// api endpoints
-app.use("/api/user", userRouter)
-app.use("/api/admin", adminRouter)
-app.use("/api/hospital", hospitalRouter)
-app.use("/api/vaccine", vaccineRouter)
-app.use("/api/hospitalb/",quantityRouter)
+    .my-id {
+      background: #020617;
+      border: 1px solid #1e293b;
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 16px;
+      text-align: center;
+    }
 
-app.get('/healthcheck', (req, res) => {
-  res.send('OK The Server is Active');
-});
+    .sidebar input {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #1e293b;
+      background: #020617;
+      color: #e5e7eb;
+      margin-bottom: 10px;
+      box-sizing: border-box;
+    }
 
+    .sidebar button {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: none;
+      background: #38bdf8;
+      color: #020617;
+      font-weight: bold;
+      cursor: pointer;
+    }
 
+    .chat-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
 
-app.get("/", (req, res) => {
-  res.send("API Working")
-});
+    .chat-header {
+      padding: 16px;
+      border-bottom: 1px solid #1e293b;
+      background: #020617;
+    }
 
-app.listen(port, () => console.log(`Server started on PORT:${port}`))
+    .chat-messages {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      background: #020617;
+    }
+
+    .message {
+      margin-bottom: 10px;
+      max-width: 70%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .me {
+      background: #38bdf8;
+      color: #020617;
+      margin-left: auto;
+      border-bottom-right-radius: 2px;
+    }
+
+    .them {
+      background: #1e293b;
+      color: #e5e7eb;
+      margin-right: auto;
+      border-bottom-left-radius: 2px;
+    }
+
+    .chat-input {
+      display: flex;
+      padding: 12px;
+      border-top: 1px solid #1e293b;
+      background: #020617;
+    }
+
+    .chat-input input {
+      flex: 1;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid #1e293b;
+      background: #020617;
+      color: #e5e7eb;
+      margin-right: 10px;
+    }
+
+    .chat-input button {
+      padding: 12px 18px;
+      border-radius: 10px;
+      border: none;
+      background: #38bdf8;
+      color: #020617;
+      font-weight: bold;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Your ID</h2>
+    <div class="my-id" id="myIdBox">----</div>
+
+    <h2>Chat with</h2>
+    <input id="otherIdInput" placeholder="Enter 4-digit ID" />
+    <button onclick="startChat()">Start Chat</button>
+  </div>
+
+  <div class="chat-container">
+    <div class="chat-header" id="chatHeader">
+      Select a user to start chatting
+    </div>
+    <div class="chat-messages" id="messages"></div>
+    <div class="chat-input">
+      <input id="messageInput" placeholder="Type a message..." />
+      <button onclick="sendMessage()">Send</button>
+    </div>
+  </div>
+
+<script>
+  const API_BASE = "http://localhost:5000"; // change to your Render URL later
+  const socket = io(API_BASE);
+
+  // ====== USER ID / TOKEN LOGIC ======
+  let myId = localStorage.getItem("quickchat_user_id");
+
+  if (!myId) {
+    myId = Math.floor(1000 + Math.random() * 9000).toString(); // 4 digit
+    localStorage.setItem("quickchat_user_id", myId);
+  }
+
+  document.getElementById("myIdBox").innerText = myId;
+
+  // Auto register
+  socket.emit("register", myId);
+
+  let currentChatUser = null;
+
+  function startChat() {
+    const otherId = document.getElementById("otherIdInput").value.trim();
+    if (!otherId) return alert("Enter user ID");
+
+    currentChatUser = otherId;
+    document.getElementById("chatHeader").innerText = "Chat with " + otherId;
+    document.getElementById("messages").innerHTML = "";
+
+    loadHistory(myId, otherId);
+  }
+
+  async function loadHistory(u1, u2) {
+    const res = await fetch(`${API_BASE}/messages?user1=${u1}&user2=${u2}`);
+    const data = await res.json();
+
+    data.forEach(msg => {
+      addMessage(msg.from === myId ? "me" : "them", msg.text);
+    });
+  }
+
+  function sendMessage() {
+    if (!currentChatUser) return alert("Select a user first");
+
+    const input = document.getElementById("messageInput");
+    const text = input.value.trim();
+    if (!text) return;
+
+    socket.emit("send_message", {
+      from: myId,
+      to: currentChatUser,
+      text
+    });
+
+    addMessage("me", text);
+    input.value = "";
+  }
+
+  socket.on("new_message", (msg) => {
+    if (msg.from === currentChatUser) {
+      addMessage("them", msg.text);
+    }
+  });
+
+  function addMessage(type, text) {
+    const div = document.createElement("div");
+    div.className = "message " + type;
+    div.innerText = text;
+    document.getElementById("messages").appendChild(div);
+    document.getElementById("messages").scrollTop = document.getElementById("messages").scrollHeight;
+  }
+</script>
+
+</body>
+</html>
